@@ -1,0 +1,183 @@
+from selenium import webdriver
+from selenium.webdriver.support.ui import Select
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from datetime import datetime, timedelta
+import pandas as pd
+import sqlite3
+
+website = 'http://111.93.109.166/CMWSSB-web/onlineMonitoringSystem/waterLevel'
+
+driver = webdriver.Chrome()
+
+driver.get(website)
+
+# refresh the entire page
+driver.refresh()
+
+# wait for the webpage to fully load after refresh
+WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.ID, 'category')))
+
+# disable the video
+video = driver.find_element(By.TAG_NAME, "video")
+driver.execute_script("arguments[0].autoplay = false;", video)
+
+# select dropdown and select element inside by visible text
+category_dropdown = WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.ID, 'category')))
+category_dropdown = Select(category_dropdown)
+category_dropdown.select_by_visible_text('Rainfall')
+
+# select another dropdown and select element inside by visible text
+location_dropdown = WebDriverWait(driver, 10).until(
+    EC.presence_of_element_located((By.ID, 'areaLocationId')))
+location_dropdown = Select(location_dropdown)
+
+# get current date
+current_date_time = datetime.now().date()
+
+# calculate the date before current date
+current_date_time = current_date_time - timedelta(days=1)
+
+# Connect to the database
+conn = sqlite3.connect('db.sqlite3')
+
+# Create a cursor object
+cursor = conn.cursor()
+
+# Execute a query to fetch the latest timestamp from the TEMP table
+cursor.execute("SELECT MAX(timestamp) FROM RAINFALL")
+
+# Fetch the result
+latest_timestamp_str = cursor.fetchone()[0]
+
+# Convert the string to a datetime object
+latest_timestamp = datetime.strptime(latest_timestamp_str, '%Y-%m-%d')
+
+# Extract date part from latest_timestamp
+latest_date = latest_timestamp.date()
+
+if latest_date < current_date_time:
+    # Define the start and end dates
+    # calculate the date after latest date
+    start_date = latest_date + timedelta(days=1)
+    end_date = current_date_time
+
+    # define a list to store the rainfall data for a specific area
+    area2data = []
+    # create one list to store the area id
+    area_id = []
+    # create one list to store the date
+    date = []
+
+    # define the dictionary of months
+    months = {'1': 'Jan', '2': 'Feb', '3': 'Mar', '4': 'Apr', '5': 'May', '6': 'Jun', '7': 'Jul', '8': 'Aug', '9': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dec'}
+
+    for location in location_dropdown.options:
+        # Extract value attribute of the option
+        option_value = location.get_attribute("value")
+
+        # Skip the option if it is '0'
+        if option_value in ['0', '1-1', '2-1', '3-1', '4-1', '5-1', '6-1']:
+            continue
+
+        # Select the option
+        location_dropdown.select_by_value(option_value)
+
+        # define a list to store the data for a specific area
+        current_date = start_date
+
+        # Iterate through each year, month, and day
+        while current_date <= end_date:
+
+            # Extract year, month, and day from the current date
+            year = current_date.year
+            month = current_date.month
+            month = months.get(str(month))
+            day = current_date.day
+
+            # select date picker and select element inside date picker
+            date_picker = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//section[@class='content']//label[@class='input-group-text']")))
+            date_picker.click()
+
+            # Select the year range
+            yearRange_element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//div[@class='datetimepicker-days']//th[@class='switch']"))
+            )
+            yearRange_element.click()
+
+            # Select the year specific range
+            yearspecific_element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.XPATH, "//div[@class='datetimepicker-months']//th[@class='switch']"))
+            )
+            yearspecific_element.click()
+
+            # Select the year
+            year_element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, f"//div[@class='datetimepicker-years']//span[text()='{year}']"))
+            )
+            year_element.click()
+
+            # Select the month
+            month_element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, f"//div[@class='datetimepicker-months']//span[text()='{month}']"))
+            )
+            month_element.click()
+
+            # Select the day
+            day_element = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, f"//div[@class='datetimepicker-days']//td[@class='day' and text()='{day}']"))
+            )
+            day_element.click()
+
+            # select button by ID
+            rainfall_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, 'checkWaterLevel')))
+            rainfall_button.click()
+
+            # select element in the table
+            match = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.ID, 'inputLevelDiv2')))
+
+            # add the data to the list and error handling
+            try:
+                # Attempt to convert match.text to float and append to area2data
+                area2data.append(float(match.text))
+                area_id.append(int(option_value))
+                date.append(current_date)
+            except ValueError:
+                # If conversion fails, skip this iteration and continue with the next match
+                current_date += timedelta(days=1)
+                continue
+
+            # Move to the next date
+            current_date += timedelta(days=1)
+
+    # Create a DataFrame with the data from this iteration
+    df_iteration_rainfall = pd.DataFrame({"rainfall_value": area2data})
+    df_iteration_date = pd.DataFrame({"timestamp": date})
+    df_iteration_areaid = pd.DataFrame({"rf_area_id": area_id})
+
+    # Append the DataFrame for this iteration to the main DataFrame
+    combined_data = pd.concat([df_iteration_date['timestamp'], df_iteration_rainfall['rainfall_value'], df_iteration_areaid['rf_area_id']], axis=1)
+
+    # execute the query to insert the data into the database
+    # Iterate over the rows of the DataFrame
+    for index, row in combined_data.iterrows():
+        # Insert the row into the database
+        cursor.execute("INSERT INTO RAINFALL (timestamp, rainfall_value, rf_area_id) VALUES (?, ?, ?)", (row['timestamp'], row['rainfall_value'], row['rf_area_id']))
+
+    # Commit the transaction
+    conn.commit()
+
+
+#quit drive we opened in the beginning
+driver.quit()
+
+# Close the connection
+conn.close()
