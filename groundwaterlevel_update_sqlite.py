@@ -180,23 +180,6 @@ if latest_date < current_date_time:
     # Append the DataFrame for this iteration to the main DataFrame
     combined_data = pd.concat([df_iteration_date['date'], df_iteration_groundwater['groundwater_value'], df_iteration_id['depot_id']], axis=1)
 
-    # # execute the query to insert the data into the database
-    # # Iterate over the rows of the DataFrame
-    # for index, row in scraped_data.iterrows():
-    #     # Extract values from the DataFrame row
-    #     timestamp = row['Time']
-    #     # Number of areas
-    #     num_depots = 200
-    #     # execute the query to insert the data into the database within the loop
-    #     for i in range(1, num_depots + 1):
-    #         # Execute INSERT query for each depot
-    #         cursor.execute(
-    #             f'INSERT INTO GROUNDWATER (gw_timestamp, gw_depot_no, groundwater_value) VALUES (%s, %s, %s)',
-    #             (timestamp, i, row[f'Depot{i}']))
-    #
-    # # Commit the changes to the database
-    # db_connection.commit()
-
     # execute the query to insert the data into the database
     # Iterate over the rows of the DataFrame
     for index, row in combined_data.iterrows():
